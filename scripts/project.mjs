@@ -65,18 +65,20 @@ const parseProject = (markdown) => {
       continue
     }
     if (section === 'feature' && feature) {
-      const m = line.match(/^\s*-?\s*\[(api|mutate)\]\s+(\w+)\(([^)]*)\)\s*:\s*\[SDK\.([\w.]+)\]\(#sdk(?:::(\S+))?\)/)
+      const m = line.match(/^\s*-?\s*\[(item|mutate|pages)\]\s+(\w+)\(([^)]*)\)\s*:\s*\[SDK\.([\w.]+)\]\(#sdk(?:::(\S+))?\)/)
       if (m) {
-        if (!['api', 'mutate'].includes(m[1])) throw new Error(`unknown marker [${m[1]}], expected [api] or [mutate]`)
-        const param = m[3].trim()
-        if (param && !/^\w+$/.test(param)) throw new Error(`feature line "${line.trim()}" takes at most one parameter name`)
-        features[domain][feature].push({
-          marker: m[1],
-          fnName: m[2],
-          param: param || null,
-          sdkPath: m[4],
-          apiAlias: m[5] ?? 'local',
-        })
+        const marker = m[1]
+        const fnName = m[2]
+        const raw = m[3].trim()
+        const params = raw ? raw.split(',').map((s) => s.trim()) : []
+        if (!params.every((p) => /^\w+$/.test(p))) throw new Error(`feature line "${line.trim()}" has an invalid parameter name`)
+        if (marker === 'item' && params.length > 1) throw new Error(`[item] ${fnName} takes at most one parameter`)
+        if (marker === 'pages' && params.length > 0) throw new Error(`[pages] ${fnName} takes no parameters (cursor is injected automatically)`)
+        if (marker === 'mutate' && params.length > 2) throw new Error(`[mutate] ${fnName} takes at most two parameters`)
+        if (marker === 'mutate' && params.length === 2 && params[0] !== 'tenantId') {
+          throw new Error(`[mutate] ${fnName}: with two parameters, the first must be named 'tenantId'`)
+        }
+        features[domain][feature].push({ marker, fnName, params, sdkPath: m[4], apiAlias: m[5] ?? 'local' })
       }
       continue
     }
@@ -144,6 +146,12 @@ const hasRequiredInit = (spec, operation) => {
   return paramsRequired || bodyRequired
 }
 
+const requiresTenant = (spec, operation) =>
+  (operation.parameters ?? []).some((p) => {
+    const resolved = resolveParamRef(spec, p)
+    return resolved.in === 'header' && resolved.name === 'X-Tenant-ID'
+  })
+
 const collectOperations = (spec) => {
   const operations = []
   for (const [path, methods] of Object.entries(spec.paths)) {
@@ -156,6 +164,7 @@ const collectOperations = (spec) => {
         tag: operation.tags?.[0] ?? 'misc',
         responseType: resolveResponseType(operation),
         requiresInit: hasRequiredInit(spec, operation),
+        requiresTenant: requiresTenant(spec, operation),
       })
     }
   }
@@ -270,6 +279,15 @@ const ensureImport = (text, importLine) => {
   return lines.join('\n')
 }
 
+const enclosingBrace = (text, pos) => {
+  const stack = []
+  for (let i = 0; i < pos; i++) {
+    if (text[i] === '{') stack.push(i)
+    else if (text[i] === '}') stack.pop()
+  }
+  return stack[stack.length - 1]
+}
+
 const matchBlock = (text, openIndex, openChar, closeChar) => {
   let depth = 0
   for (let i = openIndex; i < text.length; i++) {
@@ -292,12 +310,20 @@ const mutateParamType = (entry) => initType(entry)
 
 const renderPropFieldType = (line, entry) => {
   if (line.marker === 'mutate') {
-    const param = line.param ? `${line.param}: ${mutateParamType(entry)}` : ''
-    return `    ${line.fnName}: (${param}) => Promise<${entry.responseType}>`
+    const parts = line.params.map((p) => (p === 'tenantId' ? `${p}: string` : `${p}: ${mutateParamType(entry)}`))
+    return `    ${line.fnName}: (${parts.join(', ')}) => Promise<${entry.responseType}>`
   }
-  const param = line.param ? `${line.param}: ${propParamType(entry)}` : ''
+  if (line.marker === 'pages') {
+    return (
+      `    ${line.fnName}: () => UseInfiniteQueryReturnType<InfiniteData<${entry.responseType}>, Error> & {\n` +
+      `      queryKey: ComputedRef<unknown[]>\n` +
+      `    }`
+    )
+  }
+  const parts = line.params.map((p) => `${p}: ${propParamType(entry)}`)
+  parts.push('enabled?: Ref<boolean>')
   return (
-    `    ${line.fnName}: (${param}) => {\n` +
+    `    ${line.fnName}: (${parts.join(', ')}) => {\n` +
     `      data: Ref<${entry.responseType} | undefined>\n` +
     `      queryKey: ComputedRef<unknown[]>\n` +
     `    }`
@@ -317,17 +343,25 @@ const renderPropsType = (lines, sdkIndex) => {
   return `defineProps<{\n${body}\n}>()`
 }
 
+const bodyParams = (line) => (line.marker === 'mutate' && line.params[0] === 'tenantId' ? line.params.slice(1) : line.params)
+
 const injectDefineProps = (fileText, filePath, lines, sdkIndex, schemaModulePath) => {
   const needsSchemas = lines.some((l) => lookupSdkEntry(sdkIndex, l.sdkPath).responseType.includes('Schemas'))
-  const needsPaths = lines.some((l) => l.param)
-  const needsComputedRef = lines.some((l) => l.marker === 'api')
-  let text = ensureImport(fileText, `import { type Ref${needsComputedRef ? ', type ComputedRef' : ''} } from 'vue'`)
+  const needsPaths = lines.some((l) => l.marker !== 'pages' && bodyParams(l).length > 0)
+  const needsRef = lines.some((l) => l.marker === 'item')
+  const needsComputedRef = lines.some((l) => l.marker === 'item' || l.marker === 'pages')
+  const needsPages = lines.some((l) => l.marker === 'pages')
+  const vueTypes = [needsRef && 'type Ref', needsComputedRef && 'type ComputedRef'].filter(Boolean)
+  let text = vueTypes.length ? ensureImport(fileText, `import { ${vueTypes.join(', ')} } from 'vue'`) : fileText
   if (needsSchemas) {
     text = ensureImport(text, `import type { Schemas } from '${relativeImport(filePath, resolve(root, 'src/api/client.ts'))}'`)
   }
   if (needsPaths) {
     text = ensureImport(text, `import type { MaybeOptionalInit } from 'openapi-fetch'`)
     text = ensureImport(text, `import type { paths } from '${relativeImport(filePath, schemaModulePath)}'`)
+  }
+  if (needsPages) {
+    text = ensureImport(text, `import type { UseInfiniteQueryReturnType, InfiniteData } from '@tanstack/vue-query'`)
   }
   const newBlock = `const props = ${renderPropsType(lines, sdkIndex)}`
   const existing = text.match(/const props = defineProps<\{[\s\S]*?\}>\(\)/)
@@ -339,20 +373,38 @@ const injectDefineProps = (fileText, filePath, lines, sdkIndex, schemaModulePath
   return lines_.join('\n')
 }
 
-const renderRouterField = (line, entry, method) => {
+const renderRouterField = (line, entry, method, sdkRef) => {
   if (line.marker === 'mutate') {
-    const param = line.param ? `${line.param}: ${mutateParamType(entry)}` : ''
-    return `          ${line.fnName}: (${param}) => unwrap(SDK.${line.sdkPath}(${line.param ?? ''})),`
+    const tenantCall = line.params[0] === 'tenantId'
+    const target = tenantCall ? `scopedSdk(${line.params[0]})` : sdkRef
+    const callArg = tenantCall ? (line.params[1] ?? '') : (line.params[0] ?? '')
+    const typedParams = line.params.map((p) => (p === 'tenantId' ? `${p}: string` : `${p}: ${mutateParamType(entry)}`))
+    return `          ${line.fnName}: (${typedParams.join(', ')}) => unwrap(${target}.${line.sdkPath}(${callArg})),`
   }
-  const param = line.param
+  if (line.marker === 'pages') {
+    return (
+      `          ${line.fnName}: () => {\n` +
+      `            const options = infiniteQueryOptions({\n` +
+      `              queryKey: ['${method}'],\n` +
+      `              queryFn: ({ pageParam }) => unwrap(${sdkRef}.${line.sdkPath}({ params: { query: { cursor: pageParam } } })),\n` +
+      `              initialPageParam: undefined as string | undefined,\n` +
+      `              getNextPageParam: (page) => page.next_cursor,\n` +
+      `              staleTime: 60_000,\n` +
+      `            })\n` +
+      `            return { ...useInfiniteQuery(options), queryKey: computed(() => options.queryKey) }\n` +
+      `          },`
+    )
+  }
+  const param = line.params[0]
   const key = param ? `['${method}', ${param}.value]` : `['${method}']`
-  const call = param ? `SDK.${line.sdkPath}(${param}.value)` : `SDK.${line.sdkPath}()`
-  const typedParam = param ? `${param}: ${propParamType(entry)}` : ''
+  const call = param ? `${sdkRef}.${line.sdkPath}(${param}.value)` : `${sdkRef}.${line.sdkPath}()`
+  const typedParams = [...line.params.map((p) => `${p}: ${propParamType(entry)}`), 'enabled?: Ref<boolean>']
   return (
-    `          ${line.fnName}: (${typedParam}) => {\n` +
+    `          ${line.fnName}: (${typedParams.join(', ')}) => {\n` +
     `            const options = computed(() => queryOptions({\n` +
     `              queryKey: ${key},\n` +
     `              queryFn: () => unwrap(${call}),\n` +
+    `              enabled: enabled?.value ?? true,\n` +
     `              staleTime: 60_000,\n` +
     `            }))\n` +
     `            return { ...useQuery(options), queryKey: computed(() => options.value.queryKey) }\n` +
@@ -361,30 +413,65 @@ const renderRouterField = (line, entry, method) => {
 }
 
 const renderRouterPropsObject = (lines, sdkIndex) => {
+  const routeBoundNeedsTenant = lines.some((l) => {
+    const entry = lookupSdkEntry(sdkIndex, l.sdkPath)
+    const explicitTenant = l.marker === 'mutate' && l.params[0] === 'tenantId'
+    return entry.requiresTenant && !explicitTenant
+  })
+  const sdkRef = routeBoundNeedsTenant ? 'sdk' : 'SDK'
   const byMarker = {}
   for (const line of lines) {
     const entry = lookupSdkEntry(sdkIndex, line.sdkPath)
     const [, method] = line.sdkPath.split('.')
     byMarker[line.marker] ??= []
-    byMarker[line.marker].push(renderRouterField(line, entry, method))
+    byMarker[line.marker].push(renderRouterField(line, entry, method, sdkRef))
   }
   const body = Object.entries(byMarker)
     .map(([marker, fields]) => `        ${marker}: {\n${fields.join('\n')}\n        }`)
     .join(',\n')
-  return `props: () => ({\n${body}\n      })`
+  if (!routeBoundNeedsTenant) return `props: () => ({\n${body}\n      })`
+  return (
+    `props: (route) => {\n` +
+    `        const sdk = scopedSdk(String(route.params.tenant))\n` +
+    `        return ({\n${body}\n      })\n` +
+    `      }`
+  )
 }
 
+const scopedSdkHelper =
+  '\nconst tenantApis = new Map<string, ReturnType<typeof createSdk>>()\n' +
+  'const scopedSdk = (tenantId: string) => {\n' +
+  '  let sdk = tenantApis.get(tenantId)\n' +
+  '  if (!sdk) {\n' +
+  '    sdk = createSdk(createApi(tenantId))\n' +
+  '    tenantApis.set(tenantId, sdk)\n' +
+  '  }\n' +
+  '  return sdk\n' +
+  '}'
+
 const injectRouterProps = (fileText, filePath, route, propsObjectText, lines, schemaModulePath) => {
-  let text = ensureImport(fileText, "import { type Ref, computed } from 'vue'")
-  text = ensureImport(text, "import { queryOptions, useQuery } from '@tanstack/vue-query'")
+  const hasItem = lines.some((l) => l.marker === 'item')
+  const hasPages = lines.some((l) => l.marker === 'pages')
+  const needsRef = lines.some((l) => l.marker === 'item' && l.params.length > 0)
+  const vueNames = [needsRef && 'type Ref', (hasItem || hasPages) && 'computed'].filter(Boolean)
+  let text = vueNames.length ? ensureImport(fileText, `import { ${vueNames.join(', ')} } from 'vue'`) : fileText
+  if (hasItem) {
+    text = ensureImport(text, "import { queryOptions, useQuery } from '@tanstack/vue-query'")
+  }
+  if (hasPages) {
+    text = ensureImport(text, "import { infiniteQueryOptions, useInfiniteQuery } from '@tanstack/vue-query'")
+  }
   text = ensureImport(text, `import { createSdk } from '${relativeImport(filePath, resolve(root, 'src/api/sdk.generated.ts'))}'`)
   text = ensureImport(text, `import { createApi, unwrap } from '${relativeImport(filePath, resolve(root, 'src/api/client.ts'))}'`)
-  if (lines.some((l) => l.param)) {
+  if (lines.some((l) => l.marker !== 'pages' && bodyParams(l).length > 0)) {
     text = ensureImport(text, `import type { MaybeOptionalInit } from 'openapi-fetch'`)
     text = ensureImport(text, `import type { paths } from '${relativeImport(filePath, schemaModulePath)}'`)
   }
   if (!text.includes('const SDK = createSdk(createApi())')) {
     text = ensureImport(text, '\nconst SDK = createSdk(createApi())')
+  }
+  if (propsObjectText.includes('scopedSdk(')) {
+    text = ensureImport(text, scopedSdkHelper)
   }
 
   const anchor = `name: '${route.name}'`
@@ -394,20 +481,23 @@ const injectRouterProps = (fileText, filePath, route, propsObjectText, lines, sc
   for (let from = 0; ; ) {
     const anchorIndex = text.indexOf(anchor, from)
     if (anchorIndex === -1) throw new Error(`router.ts has no route named ${route.name}`)
-    openBrace = text.lastIndexOf('{', anchorIndex)
+    openBrace = enclosingBrace(text, anchorIndex)
     closeBrace = matchBlock(text, openBrace, '{', '}')
     routeBlock = text.slice(openBrace, closeBrace + 1)
     if (routeBlock.includes('component:')) break
     from = anchorIndex + anchor.length
   }
 
-  const propsMatch = routeBlock.match(/props:\s*\(\)\s*=>\s*/)
+  const propsMatch = routeBlock.match(/props:\s*\([^)]*\)\s*=>\s*/)
   let newRouteBlock
   if (propsMatch) {
     const propsStart = propsMatch.index
-    const openParen = routeBlock.indexOf('(', propsStart + propsMatch[0].length)
-    const closeParen = matchBlock(routeBlock, openParen, '(', ')')
-    let end = closeParen + 1
+    const bodyStart = propsStart + propsMatch[0].length
+    const bodyChar = routeBlock[bodyStart]
+    const closeChar = bodyChar === '(' ? ')' : '}'
+    const openIdx = routeBlock.indexOf(bodyChar, bodyStart)
+    const closeIdx = matchBlock(routeBlock, openIdx, bodyChar, closeChar)
+    let end = closeIdx + 1
     if (routeBlock[end] === ',') end++
     newRouteBlock = `${routeBlock.slice(0, propsStart)}${propsObjectText},${routeBlock.slice(end)}`
   } else {

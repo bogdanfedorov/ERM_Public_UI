@@ -20,8 +20,8 @@ import type { MaybeOptionalInit } from 'openapi-fetch'
 import type { paths } from '../../api/schema'
 
 const props = defineProps<{
-  api: {
-    getFields: (entity: Ref<MaybeOptionalInit<paths['/fields/{entity}'], 'get'>>) => {
+  item: {
+    getFields: (entity: Ref<MaybeOptionalInit<paths['/fields/{entity}'], 'get'>>, enabled?: Ref<boolean>) => {
       data: Ref<{ items: Schemas['FieldView'][]; next_cursor?: string } | undefined>
       queryKey: ComputedRef<unknown[]>
     }
@@ -39,7 +39,7 @@ const { t } = useI18n()
 const route = useRoute()
 const tenant = computed(() => String(route.params.tenant))
 const entity = computed(() => (isEntity(route.params.entity) ? route.params.entity : 'person'))
-const fields = props.api.getFields(computed(() => ({ params: { path: { entity: entity.value } } })))
+const fields = props.item.getFields(computed(() => ({ params: { path: { entity: entity.value } } })))
 const editing = ref(false)
 const chosen = ref<Field>()
 

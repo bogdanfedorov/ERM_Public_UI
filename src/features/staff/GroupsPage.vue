@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, type Ref, type ComputedRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuery } from '@tanstack/vue-query'
 import { Lock, Plus } from 'lucide-vue-next'
@@ -14,6 +14,23 @@ import QueryState from '../common/QueryState.vue'
 import { useTenant } from '../tenant/useTenant'
 import GroupDialog from './GroupDialog.vue'
 import StaffTabs from './StaffTabs.vue'
+import type { Schemas } from '../../api/client'
+import type { MaybeOptionalInit } from 'openapi-fetch'
+import type { paths } from '../../api/schema'
+
+const props = defineProps<{
+  item: {
+    getGroups: (enabled?: Ref<boolean>) => {
+      data: Ref<Schemas['AccessGroupPage'] | undefined>
+      queryKey: ComputedRef<unknown[]>
+    }
+  }
+  mutate: {
+    createGroup: (body: MaybeOptionalInit<paths['/groups'], 'post'>) => Promise<void>
+    updateGroup: (body: MaybeOptionalInit<paths['/groups/{access_group_id}'], 'patch'>) => Promise<void>
+    deleteGroup: (body: MaybeOptionalInit<paths['/groups/{access_group_id}'], 'delete'>) => Promise<void>
+  }
+}>()
 
 type Group = { id: string; name: string; rules: Rule[]; system?: boolean }
 

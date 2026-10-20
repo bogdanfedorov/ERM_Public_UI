@@ -85,66 +85,117 @@ whatever those children need as plain Vue props (see
 ## feature
 ### auth
 #### DevLogin
-  - [api] getMe() : [SDK.account.me](#sdk)
+  - [item] getMe() : [SDK.account.me](#sdk)
 
 ### fields
 #### FieldSettingsPage
-  - [api] getFields(entity) : [SDK.fieldDefinition.fieldList](#sdk)
+  - [item] getFields(entity) : [SDK.fieldDefinition.fieldList](#sdk)
   - [mutate] createField(body) : [SDK.fieldDefinition.create](#sdk)
+
+### people
+#### PeoplePage
+  - [pages] getPeople() : [SDK.person.list](#sdk)
+
+### tenant
+#### TenantPicker
+  - [mutate] acceptInvite(tenantId, body) : [SDK.invite.accept](#sdk)
 ```
 
 - `### <domain>` + `#### <FeatureName>` resolve to the file
   `./src/features/<domain>/<FeatureName>.vue`.
 - Each entry is a Markdown list item:
-  `- [api|mutate] <fnName>(<param?>) : [SDK.<group>.<method>](#sdk[::<alias>])`.
-  - `[api]` — a **query**. Injected as a reactive function:
+  `- [item|mutate|pages] <fnName>(<params?>) : [SDK.<group>.<method>](#sdk[::<alias>])`.
+  - `[item]` — a **query**. Injected as a reactive function:
     ```ts
-    <fnName>: (<param>: Ref<MaybeOptionalInit<paths['<path>'], '<method>'>>) => {
+    <fnName>: (<param>: Ref<MaybeOptionalInit<paths['<path>'], '<method>'>>, enabled?: Ref<boolean>) => {
       data: Ref<ResponseType | undefined>
       queryKey: ComputedRef<unknown[]>
     }
     ```
-    `<param>` is optional; omit it for a static, argument-less query (as with
-    `getMe`). The caller passes a `Ref`/`ComputedRef` wrapping the
-    `openapi-fetch` init object so the query stays reactive; `queryKey` is
-    exposed so callers can drive cache invalidation/optimistic updates
-    (`client.setQueryData`, `client.cancelQueries`, …) without reaching
-    around the contract.
+    `<param>` (at most one) is optional in the spec line itself; omit it for a
+    static, argument-less query (as with `getMe`). The caller passes a
+    `Ref`/`ComputedRef` wrapping the `openapi-fetch` init object so the query
+    stays reactive. Every `[item]` function — declared or not — additionally
+    takes a trailing `enabled?: Ref<boolean>`, wired straight into
+    `queryOptions({ enabled: ... })`; this is not written in the spec line,
+    it's part of what the `[item]` marker always generates, so a page can gate
+    a query behind e.g. an admin check (`getPermits(adminRef)`) without the
+    spec needing an opt-in flag for it. `queryKey` is exposed so callers can
+    drive cache invalidation/optimistic updates (`client.setQueryData`,
+    `client.cancelQueries`, …) without reaching around the contract.
+  - `[pages]` — a **paginated query**, for endpoints using the `{ items,
+    next_cursor? }` cursor envelope. Takes no parameters (the cursor is
+    supplied by the pagination machinery, not the caller) and is injected as:
+    ```ts
+    <fnName>: () => UseInfiniteQueryReturnType<InfiniteData<ResponseType>, Error> & {
+      queryKey: ComputedRef<unknown[]>
+    }
+    ```
+    using `useInfiniteQuery`/`infiniteQueryOptions` from `@tanstack/vue-query`
+    with `getNextPageParam: (page) => page.next_cursor` and a `cursor` query
+    param on every subsequent fetch. `UseInfiniteQueryReturnType`/
+    `InfiniteData` are `@tanstack/vue-query`'s own exported types — same
+    reasoning as `MaybeOptionalInit` below: reuse the library's type, don't
+    reconstruct it by hand. There's no way to pass extra filter params to a
+    `[pages]` query yet; every current use (`person.list`, `offering.list`)
+    is a bare, unfiltered list.
   - `[mutate]` — an **action**. Injected as a plain async function:
     ```ts
     <fnName>: (<param>: MaybeOptionalInit<paths['<path>'], '<method>'>) => Promise<ResponseType>
     ```
     Called imperatively (button click, form submit); not wired into the
     query cache by the generator — callers invalidate explicitly via the
-    `queryKey` of whichever `[api]` entry needs refreshing.
-  - The bracket word (`api` / `mutate`) is **both** the behavior selector
-    and the outer key the prop is grouped under — i.e. every `[api]` line in
-    a feature lands under `props.api.*`, every `[mutate]` line under
-    `props.mutate.*`. There is no separate "group name" concept.
+    `queryKey` of whichever `[item]`/`[pages]` entry needs refreshing.
+    `[mutate]` may instead take **two** parameters, `(tenantId, <body>)`,
+    where the first must be literally named `tenantId`:
+    ```ts
+    <fnName>: (tenantId: string, <body>: MaybeOptionalInit<paths['<path>'], '<method>'>) => Promise<ResponseType>
+    ```
+    generated as `unwrap(scopedSdk(tenantId).<group>.<method>(<body>))` —
+    this is for the rare mutation whose tenant isn't the route's own
+    `:tenant` param (e.g. `TenantPicker.acceptInvite`: the picker page lives
+    outside `/t/:tenant/...` entirely, and each invite targets a *different*
+    tenant). Don't reach for this for the common case — see
+    [Router → tenant scoping](#router) below, which handles route-bound
+    tenant scoping automatically from the OpenAPI spec.
+  - The bracket word (`item` / `mutate` / `pages`) is **both** the behavior
+    selector and the outer key the prop is grouped under — i.e. every `[item]`
+    line in a feature lands under `props.item.*`, `[mutate]` under
+    `props.mutate.*`, `[pages]` under `props.pages.*`. There is no separate
+    "group name" concept.
   - `ResponseType` is resolved from the operation's `200`/`201`/`204`
     response schema: a `$ref` → `Schemas['X']`, an array of `$ref` →
     `Schemas['X'][]`, an inline `{ items: [$ref], next_cursor? }` envelope →
     `{ items: Schemas['X'][]; next_cursor?: string }`, no response body →
-    `void`, anything else → `unknown`.
-  - A line may name at most one parameter. Multi-argument calls (e.g. the old
-    hand-written `moveField(id, afterId, intent)`) must be collapsed by the
-    caller into a single `openapi-fetch` init object
+    `void`, anything else → `unknown`. For `[pages]`, this is the *per-page*
+    shape (the envelope), not the flattened item list.
+  - Beyond the optional `enabled`/`tenantId` extras above, a line may name at
+    most one parameter. Multi-argument calls (e.g. the old hand-written
+    `moveField(id, afterId, intent)`) must be collapsed by the caller into a
+    single `openapi-fetch` init object
     (`{ params: { path: { ... } }, body: {...}, headers: {...} }`) before
     calling the injected function — the generator does not do per-field
     argument mapping.
+  - **Deliberately out of scope:** a `select:`-style client-side transform
+    (filtering/reshaping the response before it's cached) is not, and won't
+    be, expressible in a spec line. That's presentation logic tied to one
+    screen; it belongs in the component as a `computed()` over the raw
+    `data.value` the generated query already gives it, not baked into the
+    shared cached query. Keeping it there means the same query stays
+    reusable/correctly cached across every caller.
 
 `-gI` inserts/replaces `const props = defineProps<{...}>()` right after the
 last `import` in the component's `<script setup>`, merging any newly-needed
 `vue`/`client.ts` imports into existing import lines from the same module
 rather than duplicating them. **The generator only owns the `defineProps`
 signature** — it never touches the rest of the component body. Wiring the
-component's existing logic to actually call `props.api.*` / `props.mutate.*`
+component's existing logic to actually call `props.item.*` / `props.mutate.*`
 (and deleting whatever it replaces) is done by hand, once, after `-gI` runs.
 
 #### Sub-components / mutations
 
 Dialogs, rows, and other non-routed children are plain Vue components: they
-are **not** described in `## feature` and receive no injected `props.api`/
+are **not** described in `## feature` and receive no injected `props.item`/
 `props.mutate`. The routed parent page owns the injected functions and
 `queryKey`s, and passes down exactly what each child needs as ordinary props
 (e.g. `:create-field="props.mutate.createField"`, `:fields-query-key="fields.queryKey"`).
@@ -178,14 +229,15 @@ injected props to live `useQuery`/SDK calls.
 - Component path is resolved the same way as in [feature](#feature): by
   matching `[ComponentName](#anchor)` against a `#### ComponentName` heading
   anywhere under `## feature`, independent of domain.
-- Generated injection:
+- Generated injection (no tenant-scoped operations in the feature):
   ```ts
   props: () => ({
-    api: {
-      <fnName>: (<param>) => {
+    item: {
+      <fnName>: (<param>, enabled?) => {
         const options = computed(() => queryOptions({
           queryKey: ['<method>'<, <param>.value>],
           queryFn: () => unwrap(SDK.<group>.<method>(<param>.value)),
+          enabled: enabled?.value ?? true,
           staleTime: 60_000,
         }))
         return { ...useQuery(options), queryKey: computed(() => options.value.queryKey) }
@@ -196,24 +248,56 @@ injected props to live `useQuery`/SDK calls.
     },
   })
   ```
-  `staleTime` is always `60_000`; there is currently no way to override it,
-  or any other `useQuery` option (`retry`, `select`, `enabled`, …), from the
-  spec. A component needing that (e.g. `retry: false` on an auth check) must
-  express it via the primitives the contract does expose — e.g. call
-  `.refetch({ throwOnError: true })` on the injected query instead of relying
-  on a `retry` option — rather than the generator special-casing it.
-- `createSdk`/`createApi`/`unwrap` imports and the module-level
-  `const SDK = createSdk(createApi())` are inserted into `router.ts` once,
-  idempotently, regardless of how many routes need injection.
+  `staleTime` is always `60_000`; there is no way to override it from the
+  spec (unlike `enabled`, which every `[item]` call gets automatically — see
+  [feature](#feature) above).
+
+**Tenant scoping.** Whether a call needs a tenant-scoped client is derived
+directly from the OpenAPI spec, not guessed: an operation "requires tenant"
+if any of its parameters resolves (through a `$ref`) to a header named
+exactly `X-Tenant-ID` (the backend's `ReadTenantID`/`TenantID` parameters
+both do). If **any** `[item]`/`[pages]`/plain `[mutate]` line in a feature
+requires tenant scoping, the whole route's `props` becomes a function of the
+matched route, and every such call goes through a per-tenant SDK instance
+cached by `scopedSdk`, inserted into `router.ts` once:
+```ts
+const tenantApis = new Map<string, ReturnType<typeof createSdk>>()
+const scopedSdk = (tenantId: string) => {
+  let sdk = tenantApis.get(tenantId)
+  if (!sdk) {
+    sdk = createSdk(createApi(tenantId))
+    tenantApis.set(tenantId, sdk)
+  }
+  return sdk
+}
+```
+```ts
+props: (route) => {
+  const sdk = scopedSdk(String(route.params.tenant))
+  return ({ item: { <fnName>: (<param>, enabled?) => { /* uses sdk.<group>.<method>(...) */ } } })
+}
+```
+A plain, untenanted `const SDK = createSdk(createApi())` is still inserted
+once and used for calls that don't require a tenant (`account.me`, and any
+`[mutate]` line using the explicit `(tenantId, body)` form, which always
+calls `scopedSdk(tenantId)` directly regardless of the route's own tenant).
+Routes with **no** tenant-scoped calls at all (e.g. `/login`, `/`) keep the
+plain `props: () => ({...})` shape and never pay for `scopedSdk`.
+
+This was found and fixed during the rollout: the first version of the
+generator always used the single untenanted `SDK`, so every tenant-scoped
+call (`fields`, `people`, `offerings`, …) was silently missing the
+`X-Tenant-ID` header it needs — type-checked fine, would have failed at
+runtime with a 400/403 from the backend.
 
 ## Known limitations (not yet covered by the contract)
 
-- No way to pass extra `useQuery` options (`retry`, `select`, `enabled`,
-  pagination via `useInfiniteQuery`) through the spec — only `queryKey` +
-  `queryFn` + a fixed `staleTime` are generated.
+- `[pages]` queries take no parameters — no filters beyond the cursor.
 - No declarative optimistic-update/cache-invalidation wiring — components
   keep using `useQueryClient()` directly, with the injected `queryKey` as the
   only hook the contract provides.
+- No `select:`-style transform, by design — see
+  [feature → deliberately out of scope](#feature).
 - `client.ts` (`createApi`, `ApiError`, `unwrap`, `Schemas`, `Api`,
   `ActionDenied`, `newIntentKey`) is hand-written infrastructure, not
   generated — it must exist before `-gS`/`-gI` output type-checks.

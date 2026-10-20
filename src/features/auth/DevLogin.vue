@@ -14,8 +14,8 @@ import { type Ref } from 'vue'
 import type { Schemas } from '../../api/client'
 
 const props = defineProps<{
-  api: {
-    getMe: () => {
+  item: {
+    getMe: (enabled?: Ref<boolean>) => {
       data: Ref<Schemas['Me'] | undefined>
       queryKey: ComputedRef<unknown[]>
     }
@@ -28,7 +28,7 @@ const router = useRouter()
 const client = useQueryClient()
 const signOutNow = useSignOut()
 
-let me = props.api.getMe()
+let me = props.item.getMe()
 const accountId = ref('')
 const recent = ref(recentAccounts())
 const error = ref<string>()
@@ -49,7 +49,7 @@ const enter = async (id: string) => {
   client.clear()
   try {
     await signIn(id)
-    me = await props.api.getMe();
+    me = await props.item.getMe();
     remember(id)
     await router.replace(target.value)
   } catch (e) {

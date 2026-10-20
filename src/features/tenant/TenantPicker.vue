@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watchEffect } from 'vue'
+import { computed, watchEffect, type Ref, type ComputedRef } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
@@ -11,6 +11,21 @@ import Badge from '../../ui/Badge.vue'
 import Notice from '../../ui/Notice.vue'
 import QueryState from '../common/QueryState.vue'
 import { errorMessage } from '../common/errors'
+import type { Schemas } from '../../api/client'
+import type { MaybeOptionalInit } from 'openapi-fetch'
+import type { paths } from '../../api/schema'
+
+const props = defineProps<{
+  item: {
+    getMe: (enabled?: Ref<boolean>) => {
+      data: Ref<Schemas['Me'] | undefined>
+      queryKey: ComputedRef<unknown[]>
+    }
+  }
+  mutate: {
+    acceptInvite: (tenantId: string, body: MaybeOptionalInit<paths['/invites/{invite_id}/accept'], 'post'>) => Promise<void>
+  }
+}>()
 
 const { t } = useI18n()
 const router = useRouter()
