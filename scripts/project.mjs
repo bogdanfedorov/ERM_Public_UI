@@ -135,7 +135,10 @@ const resolveParamRef = (spec, param) =>
   param.$ref ? spec.components.parameters[param.$ref.split('/').pop()] : param
 
 const hasRequiredInit = (spec, operation) => {
-  const paramsRequired = (operation.parameters ?? []).some((p) => resolveParamRef(spec, p).required === true)
+  const paramsRequired = (operation.parameters ?? []).some((p) => {
+    const resolved = resolveParamRef(spec, p)
+    return resolved.required === true && resolved.in !== 'header'
+  })
   const bodyRequired = operation.requestBody?.required === true
   return paramsRequired || bodyRequired
 }
@@ -335,15 +338,17 @@ const injectDefineProps = (fileText, filePath, lines, sdkIndex, schemaModulePath
   return lines_.join('\n')
 }
 
-const renderRouterField = (line, method) => {
+const renderRouterField = (line, entry, method) => {
   if (line.marker === 'mutate') {
-    return `          ${line.fnName}: (${line.param ?? ''}) => unwrap(SDK.${line.sdkPath}(${line.param ?? ''})),`
+    const param = line.param ? `${line.param}: ${mutateParamType(entry)}` : ''
+    return `          ${line.fnName}: (${param}) => unwrap(SDK.${line.sdkPath}(${line.param ?? ''})),`
   }
   const param = line.param
   const key = param ? `['${method}', ${param}.value]` : `['${method}']`
   const call = param ? `SDK.${line.sdkPath}(${param}.value)` : `SDK.${line.sdkPath}()`
+  const typedParam = param ? `${param}: ${propParamType(entry)}` : ''
   return (
-    `          ${line.fnName}: (${param ?? ''}) => {\n` +
+    `          ${line.fnName}: (${typedParam}) => {\n` +
     `            const options = computed(() => queryOptions({\n` +
     `              queryKey: ${key},\n` +
     `              queryFn: () => unwrap(${call}),\n` +
@@ -357,10 +362,10 @@ const renderRouterField = (line, method) => {
 const renderRouterPropsObject = (lines, sdkIndex) => {
   const byMarker = {}
   for (const line of lines) {
-    lookupSdkEntry(sdkIndex, line.sdkPath)
+    const entry = lookupSdkEntry(sdkIndex, line.sdkPath)
     const [, method] = line.sdkPath.split('.')
     byMarker[line.marker] ??= []
-    byMarker[line.marker].push(renderRouterField(line, method))
+    byMarker[line.marker].push(renderRouterField(line, entry, method))
   }
   const body = Object.entries(byMarker)
     .map(([marker, fields]) => `        ${marker}: {\n${fields.join('\n')}\n        }`)
@@ -368,11 +373,15 @@ const renderRouterPropsObject = (lines, sdkIndex) => {
   return `props: () => ({\n${body}\n      })`
 }
 
-const injectRouterProps = (fileText, filePath, route, propsObjectText) => {
-  let text = ensureImport(fileText, "import { computed } from 'vue'")
+const injectRouterProps = (fileText, filePath, route, propsObjectText, lines, schemaModulePath) => {
+  let text = ensureImport(fileText, "import { type Ref, computed } from 'vue'")
   text = ensureImport(text, "import { queryOptions, useQuery } from '@tanstack/vue-query'")
   text = ensureImport(text, `import { createSdk } from '${relativeImport(filePath, resolve(root, 'src/api/sdk.generated.ts'))}'`)
   text = ensureImport(text, `import { createApi, unwrap } from '${relativeImport(filePath, resolve(root, 'src/api/client.ts'))}'`)
+  if (lines.some((l) => l.param)) {
+    text = ensureImport(text, `import type { MaybeOptionalInit } from 'openapi-fetch'`)
+    text = ensureImport(text, `import type { paths } from '${relativeImport(filePath, schemaModulePath)}'`)
+  }
   if (!text.includes('const SDK = createSdk(createApi())')) {
     text = ensureImport(text, '\nconst SDK = createSdk(createApi())')
   }
@@ -476,7 +485,7 @@ const runInjection = (project, flags, problems) => {
     const routerPath = resolve(root, 'src/app/router.ts')
     const routerText = readFileSync(routerPath, 'utf8')
     const propsObject = renderRouterPropsObject(found.lines, sdkIndex)
-    const newRouterText = injectRouterProps(routerText, routerPath, route, propsObject)
+    const newRouterText = injectRouterProps(routerText, routerPath, route, propsObject, found.lines, schemaModulePath)
     writeOrCheck(routerPath, newRouterText, flags.vI, problems)
   }
 }

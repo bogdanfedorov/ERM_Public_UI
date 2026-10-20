@@ -5,7 +5,9 @@ import AppShell from './AppShell.vue'
 import { queryOptions, useQuery } from '@tanstack/vue-query'
 import { createSdk } from '../api/sdk.generated'
 import { createApi, unwrap } from '../api/client'
-import { computed } from 'vue'
+import { computed, type Ref } from 'vue'
+import type { MaybeOptionalInit } from 'openapi-fetch'
+import type { paths } from '../api/schema'
 
 const SDK = createSdk(createApi())
 
@@ -49,7 +51,7 @@ export const router = createRouter({
           component: () => import('../features/fields/FieldSettingsPage.vue')
       , props: () => ({
         api: {
-          getFields: (entity) => {
+          getFields: (entity: Ref<MaybeOptionalInit<paths['/fields/{entity}'], 'get'>>) => {
             const options = computed(() => queryOptions({
               queryKey: ['fieldList', entity.value],
               queryFn: () => unwrap(SDK.fieldDefinition.fieldList(entity.value)),
@@ -59,11 +61,11 @@ export const router = createRouter({
           },
         },
         mutate: {
-          createField: (body) => unwrap(SDK.fieldDefinition.create(body)),
-          updateField: (body) => unwrap(SDK.fieldDefinition.update(body)),
-          archiveField: (body) => unwrap(SDK.fieldDefinition.archive(body)),
-          restoreField: (body) => unwrap(SDK.fieldDefinition.restore(body)),
-          moveField: (body) => unwrap(SDK.fieldDefinition.move(body)),
+          createField: (body: MaybeOptionalInit<paths['/field_definitions'], 'post'>) => unwrap(SDK.fieldDefinition.create(body)),
+          updateField: (body: MaybeOptionalInit<paths['/field_definitions/{field_definition_id}'], 'patch'>) => unwrap(SDK.fieldDefinition.update(body)),
+          archiveField: (body: MaybeOptionalInit<paths['/field_definitions/{field_definition_id}/archive'], 'post'>) => unwrap(SDK.fieldDefinition.archive(body)),
+          restoreField: (body: MaybeOptionalInit<paths['/field_definitions/{field_definition_id}/restore'], 'post'>) => unwrap(SDK.fieldDefinition.restore(body)),
+          moveField: (body: MaybeOptionalInit<paths['/field_definitions/{field_definition_id}/move'], 'post'>) => unwrap(SDK.fieldDefinition.move(body)),
         }
       }), },
         {
