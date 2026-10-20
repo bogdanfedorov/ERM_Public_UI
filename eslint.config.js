@@ -22,7 +22,17 @@ const may = (from, to) => ({
 })
 
 export default defineConfig(
-  { ignores: ['dist', 'node_modules', '.shots', 'src/api/schema.d.ts', 'playwright-report', 'test-results'] },
+  {
+    ignores: [
+      'dist',
+      'node_modules',
+      '.shots',
+      'src/api/schema.d.ts',
+      'src/api/sdk.generated.ts',
+      'playwright-report',
+      'test-results',
+    ],
+  },
   js.configs.recommended,
   tseslint.configs.recommended,
   vue.configs['flat/recommended'],

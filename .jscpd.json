@@ -1,5 +1,6 @@
 {
   "ignore": [
-    "**/api/schema.d.ts"
+    "**/api/schema.d.ts",
+    "**/api/sdk.generated.ts"
   ]
 }

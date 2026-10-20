@@ -2,13 +2,27 @@ import { createRouter, createWebHistory } from 'vue-router'
 import DevLogin from '../features/auth/DevLogin.vue'
 import TenantPicker from '../features/tenant/TenantPicker.vue'
 import AppShell from './AppShell.vue'
+import { queryOptions, useQuery } from '@tanstack/vue-query'
+import { createSdk } from '../api/sdk.generated'
+import { createApi, unwrap } from '../api/client'
+
+const SDK = createSdk(createApi())
 
 const uuid = '[0-9a-fA-F-]{36}'
 
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/login', name: 'login', component: DevLogin },
+    { path: '/login', name: 'login', component: DevLogin
+      , props: () => ({
+        api: {
+          getMe: () => useQuery(queryOptions({
+            queryKey: ['me'],
+            queryFn: () => unwrap(SDK.account.me()),
+            staleTime: 60_000,
+          })),
+        }
+      }), },
     { path: '/', name: 'tenants', component: TenantPicker },
     {
       path: `/t/:tenant(${uuid})`,

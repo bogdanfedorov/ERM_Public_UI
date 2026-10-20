@@ -11,6 +11,14 @@ import Notice from '../../ui/Notice.vue'
 import { errorMessage } from '../common/errors'
 import { forget, isAccountId, recentAccounts, remember, signIn, signOut } from './devSession'
 import { useSignOut } from './useSignOut'
+import { type Ref } from 'vue'
+import type { Schemas } from '../../api/client'
+
+const props = defineProps<{
+  api: {
+    getMe: () => { data: Ref<Schemas['Me'] | undefined> }
+  }
+}>()
 
 const { t } = useI18n()
 const route = useRoute()

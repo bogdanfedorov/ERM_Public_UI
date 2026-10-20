@@ -5,3 +5,4 @@ playwright-report
 test-results
 .shots
 .dev/vite.log
+komutator.issues.md
