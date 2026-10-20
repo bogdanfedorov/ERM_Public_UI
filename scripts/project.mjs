@@ -388,12 +388,11 @@ const injectRouterProps = (fileText, filePath, route, propsObjectText, lines, sc
   }
 
   const anchor = `name: '${route.name}'`
-  let anchorIndex = -1
-  let openBrace = -1
-  let closeBrace = -1
-  let routeBlock = ''
+  let openBrace
+  let closeBrace
+  let routeBlock
   for (let from = 0; ; ) {
-    anchorIndex = text.indexOf(anchor, from)
+    const anchorIndex = text.indexOf(anchor, from)
     if (anchorIndex === -1) throw new Error(`router.ts has no route named ${route.name}`)
     openBrace = text.lastIndexOf('{', anchorIndex)
     closeBrace = matchBlock(text, openBrace, '{', '}')
