@@ -2,6 +2,8 @@
 
 Vue 3 SPA for **ERM** — a CRM-for-schools system for small businesses. This is the `frontend` slice of the ERM monorepo; see [docs/architecture/](../docs/architecture/) for full system design. (Repo is public as the frontend slice only — links to `../docs/` and `../backend/` are private siblings.)
 
+**Contents:** [What this is](#what-this-is) · [Core features](#core-features) · [Ideology](#ideology) · [Layout](#layout) · [Development](#development) · [Scripts](#scripts) · [Client ↔ API contract](#client--api-contract-projectmd) · [Further reading](#further-reading)
+
 ## What this is
 
 ERM has a **fixed skeleton**: time, relationships, permissions, and tenant isolation are modeled by the system, never per customer. Everything else — a name, allergies, a phone — lives in `attrs`, described by a backend-served `FieldDefinition`. No per-tenant `if` anywhere: forms, lists, and filters render generically from one field registry (`src/fields/`). The app talks to the Go backend only via its REST API and never computes permissions itself — it reads the backend's effective `mode` (RCUD bitmask) and hides/disables accordingly.

@@ -1,3 +1,4 @@
+// Spec and extension guide: scripts/ProjectMJS_PRD.md
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
