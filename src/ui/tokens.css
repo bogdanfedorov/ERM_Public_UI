@@ -1,0 +1,103 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/golos-text';
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+:root {
+  --paper: oklch(0.975 0.004 85);
+  --surface: oklch(0.995 0.002 85);
+  --sunken: oklch(0.948 0.006 85);
+  --ink: oklch(0.22 0.01 85);
+  --ink-muted: oklch(0.47 0.012 85);
+  --ink-faint: oklch(0.62 0.01 85);
+  --line: oklch(0.9 0.007 85);
+  --line-strong: oklch(0.82 0.01 85);
+  --accent: oklch(0.5 0.09 178);
+  --accent-ink: oklch(0.99 0.01 178);
+  --accent-soft: oklch(0.94 0.03 178);
+  --ok: oklch(0.52 0.12 150);
+  --ok-soft: oklch(0.95 0.04 150);
+  --warn: oklch(0.58 0.13 70);
+  --warn-soft: oklch(0.96 0.05 80);
+  --bad: oklch(0.53 0.16 28);
+  --bad-soft: oklch(0.95 0.03 28);
+  --neutral-soft: oklch(0.93 0.005 85);
+  --row: 2.75rem;
+  --gap: 1rem;
+  color-scheme: light;
+}
+
+:root[data-density='compact'] {
+  --row: 2.25rem;
+  --gap: 0.75rem;
+}
+
+:root[data-theme='dark'] {
+  --paper: oklch(0.18 0.004 85);
+  --surface: oklch(0.215 0.005 85);
+  --sunken: oklch(0.16 0.004 85);
+  --ink: oklch(0.94 0.006 85);
+  --ink-muted: oklch(0.72 0.01 85);
+  --ink-faint: oklch(0.56 0.01 85);
+  --line: oklch(0.3 0.006 85);
+  --line-strong: oklch(0.38 0.008 85);
+  --accent: oklch(0.72 0.1 178);
+  --accent-ink: oklch(0.18 0.02 178);
+  --accent-soft: oklch(0.3 0.05 178);
+  --ok: oklch(0.74 0.13 150);
+  --ok-soft: oklch(0.3 0.05 150);
+  --warn: oklch(0.8 0.13 80);
+  --warn-soft: oklch(0.32 0.05 80);
+  --bad: oklch(0.72 0.15 28);
+  --bad-soft: oklch(0.32 0.06 28);
+  --neutral-soft: oklch(0.28 0.005 85);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --font-sans: 'Golos Text Variable', ui-sans-serif, system-ui, sans-serif;
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+  --color-neutral-soft: var(--neutral-soft);
+  --spacing-row: var(--row);
+  --spacing-gap: var(--gap);
+}
+
+html {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-feature-settings: 'tnum' 0;
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--paper);
+  margin: 0;
+  min-height: 100dvh;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
