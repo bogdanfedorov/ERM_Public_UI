@@ -64,12 +64,15 @@ const parseProject = (markdown) => {
       continue
     }
     if (section === 'feature' && feature) {
-      const m = line.match(/^\s*\[(\w+)\]\s+(\w+)\(([^)]*)\)\s*:\s*\[SDK\.([\w.]+)\]\(#sdk(?:::(\S+))?\)/)
+      const m = line.match(/^\s*-?\s*\[(api|mutate)\]\s+(\w+)\(([^)]*)\)\s*:\s*\[SDK\.([\w.]+)\]\(#sdk(?:::(\S+))?\)/)
       if (m) {
+        if (!['api', 'mutate'].includes(m[1])) throw new Error(`unknown marker [${m[1]}], expected [api] or [mutate]`)
+        const param = m[3].trim()
+        if (param && !/^\w+$/.test(param)) throw new Error(`feature line "${line.trim()}" takes at most one parameter name`)
         features[domain][feature].push({
           marker: m[1],
           fnName: m[2],
-          args: m[3],
+          param: param || null,
           sdkPath: m[4],
           apiAlias: m[5] ?? 'local',
         })
@@ -77,7 +80,7 @@ const parseProject = (markdown) => {
       continue
     }
     if (section === 'router') {
-      const pathMatch = line.match(/^-\s*(\/\S*)\s*$/)
+      const pathMatch = line.match(/^-\s*(\S+)\s*$/)
       if (pathMatch) {
         route = { path: pathMatch[1], name: null, component: null }
         routes.push(route)
@@ -110,14 +113,31 @@ const camelCase = (s) => s.split(/[_-]/).map((w, i) => (i === 0 ? w : w[0].toUpp
 
 const lowerFirst = (s) => s[0].toLowerCase() + s.slice(1)
 
+const refName = (schema) => `Schemas['${schema.$ref.split('/').pop()}']`
+
 const resolveResponseType = (operation) => {
   const responses = operation.responses ?? {}
   const ok = responses['200'] ?? responses['201'] ?? responses['204']
-  const schema = ok?.content?.['application/json']?.schema
-  if (!schema) return 'unknown'
-  if (schema.$ref) return `Schemas['${schema.$ref.split('/').pop()}']`
-  if (schema.type === 'array' && schema.items?.$ref) return `Schemas['${schema.items.$ref.split('/').pop()}'][]`
+  if (!ok) return 'unknown'
+  const schema = ok.content?.['application/json']?.schema
+  if (!schema) return 'void'
+  if (schema.$ref) return refName(schema)
+  if (schema.type === 'array' && schema.items?.$ref) return `${refName(schema.items)}[]`
+  const items = schema.properties?.items
+  if (schema.type === 'object' && items?.type === 'array' && items.items?.$ref) {
+    const cursor = schema.properties?.next_cursor ? '; next_cursor?: string' : ''
+    return `{ items: ${refName(items.items)}[]${cursor} }`
+  }
   return 'unknown'
+}
+
+const resolveParamRef = (spec, param) =>
+  param.$ref ? spec.components.parameters[param.$ref.split('/').pop()] : param
+
+const hasRequiredInit = (spec, operation) => {
+  const paramsRequired = (operation.parameters ?? []).some((p) => resolveParamRef(spec, p).required === true)
+  const bodyRequired = operation.requestBody?.required === true
+  return paramsRequired || bodyRequired
 }
 
 const collectOperations = (spec) => {
@@ -131,6 +151,7 @@ const collectOperations = (spec) => {
         operationId: operation.operationId,
         tag: operation.tags?.[0] ?? 'misc',
         responseType: resolveResponseType(operation),
+        requiresInit: hasRequiredInit(spec, operation),
       })
     }
   }
@@ -163,12 +184,10 @@ const lookupSdkEntry = (sdkIndex, sdkPath) => {
 }
 
 const patchOpenApiSpec = (spec) => {
-  const resolveParam = (param) =>
-    param.$ref ? spec.components.parameters[param.$ref.split('/').pop()] : param
   for (const path of Object.values(spec.paths)) {
     for (const operation of Object.values(path)) {
       if (operation.parameters) {
-        operation.parameters = operation.parameters.filter((p) => resolveParam(p).in !== 'header')
+        operation.parameters = operation.parameters.filter((p) => resolveParamRef(spec, p).in !== 'header')
       }
     }
   }
@@ -193,25 +212,57 @@ const schemaOutPath = (apis, alias) =>
 const sdkOutPath = (apis, alias) =>
   resolve(root, apis.length > 1 ? `src/api/${alias}.sdk.generated.ts` : 'src/api/sdk.generated.ts')
 
-const renderSdkFile = (sdkIndex) => {
+const initType = (op) => `MaybeOptionalInit<paths['${op.path}'], '${op.httpMethod.toLowerCase()}'>`
+
+const renderSdkFile = (sdkIndex, schemaModule) => {
   const groups = Object.entries(sdkIndex).map(([group, methods]) => {
     const body = Object.entries(methods)
-      .map(
-        ([method, op]) =>
-          `    ${method}: (init?: Parameters<Api['${op.httpMethod}']>[1]) => api.${op.httpMethod}('${op.path}', init),`,
-      )
+      .map(([method, op]) => `    ${method}: (init${op.requiresInit ? '' : '?'}: ${initType(op)}) => api.${op.httpMethod}('${op.path}', init),`)
       .join('\n')
     return `  ${group}: {\n${body}\n  },`
   })
-  return `import type { Api } from './client'\n\nexport const createSdk = (api: Api) => ({\n${groups.join('\n')}\n})\n`
+  return (
+    `import type { MaybeOptionalInit } from 'openapi-fetch'\n` +
+    `import type { Api } from './client'\n` +
+    `import type { paths } from '${schemaModule}'\n\n` +
+    `export const createSdk = (api: Api) => ({\n${groups.join('\n')}\n})\n`
+  )
 }
 
+const namedImportBaseName = (specifier) => specifier.replace(/^type\s+/, '').trim()
+
 const ensureImport = (text, importLine) => {
-  if (text.includes(importLine)) return text
+  const parsed = importLine.match(/^import \{([^}]+)\} from '([^']+)'$/)
+  if (!parsed) {
+    if (text.includes(importLine)) return text
+    const lines = text.split('\n')
+    let lastImport = -1
+    for (let i = 0; i < lines.length; i++) if (/^import /.test(lines[i])) lastImport = i
+    lines.splice(lastImport + 1, 0, importLine)
+    return lines.join('\n')
+  }
+
+  const wanted = parsed[1].split(',').map((s) => s.trim())
+  const module = parsed[2]
   const lines = text.split('\n')
-  let lastImport = -1
-  for (let i = 0; i < lines.length; i++) if (/^import /.test(lines[i])) lastImport = i
-  lines.splice(lastImport + 1, 0, importLine)
+  const moduleLineRe = new RegExp(`^import \\{([^}]+)\\} from '${module}'$`)
+  const moduleIndexes = lines.map((l, i) => (moduleLineRe.test(l) ? i : -1)).filter((i) => i !== -1)
+
+  if (moduleIndexes.length === 0) {
+    let lastImport = -1
+    for (let i = 0; i < lines.length; i++) if (/^import /.test(lines[i])) lastImport = i
+    lines.splice(lastImport + 1, 0, importLine)
+    return lines.join('\n')
+  }
+
+  const existingNames = new Set(
+    moduleIndexes.flatMap((i) => lines[i].match(moduleLineRe)[1].split(',').map((s) => namedImportBaseName(s.trim()))),
+  )
+  const missing = wanted.filter((s) => !existingNames.has(namedImportBaseName(s)))
+  if (missing.length === 0) return text
+  const target = moduleIndexes[0]
+  const targetSpecs = lines[target].match(moduleLineRe)[1].split(',').map((s) => s.trim())
+  lines[target] = `import { ${[...targetSpecs, ...missing].join(', ')} } from '${module}'`
   return lines.join('\n')
 }
 
@@ -228,8 +279,25 @@ const matchBlock = (text, openIndex, openChar, closeChar) => {
 }
 
 const relativeImport = (fromFile, toFile) => {
-  const rel = relative(dirname(fromFile), toFile).replace(/\\/g, '/').replace(/\.ts$/, '')
+  const rel = relative(dirname(fromFile), toFile).replace(/\\/g, '/').replace(/\.d\.ts$|\.ts$/, '')
   return rel.startsWith('.') ? rel : `./${rel}`
+}
+
+const propParamType = (entry) => `Ref<${initType(entry)}>`
+const mutateParamType = (entry) => initType(entry)
+
+const renderPropFieldType = (line, entry) => {
+  if (line.marker === 'mutate') {
+    const param = line.param ? `${line.param}: ${mutateParamType(entry)}` : ''
+    return `    ${line.fnName}: (${param}) => Promise<${entry.responseType}>`
+  }
+  const param = line.param ? `${line.param}: ${propParamType(entry)}` : ''
+  return (
+    `    ${line.fnName}: (${param}) => {\n` +
+    `      data: Ref<${entry.responseType} | undefined>\n` +
+    `      queryKey: ComputedRef<unknown[]>\n` +
+    `    }`
+  )
 }
 
 const renderPropsType = (lines, sdkIndex) => {
@@ -237,7 +305,7 @@ const renderPropsType = (lines, sdkIndex) => {
   for (const line of lines) {
     const entry = lookupSdkEntry(sdkIndex, line.sdkPath)
     byMarker[line.marker] ??= []
-    byMarker[line.marker].push(`    ${line.fnName}: () => { data: Ref<${entry.responseType} | undefined> }`)
+    byMarker[line.marker].push(renderPropFieldType(line, entry))
   }
   const body = Object.entries(byMarker)
     .map(([marker, fields]) => `  ${marker}: {\n${fields.join('\n')}\n  }`)
@@ -245,11 +313,17 @@ const renderPropsType = (lines, sdkIndex) => {
   return `defineProps<{\n${body}\n}>()`
 }
 
-const injectDefineProps = (fileText, filePath, lines, sdkIndex) => {
-  const needsSchemas = lines.some((l) => lookupSdkEntry(sdkIndex, l.sdkPath).responseType.startsWith("Schemas"))
-  let text = ensureImport(fileText, "import { type Ref } from 'vue'")
+const injectDefineProps = (fileText, filePath, lines, sdkIndex, schemaModulePath) => {
+  const needsSchemas = lines.some((l) => lookupSdkEntry(sdkIndex, l.sdkPath).responseType.includes('Schemas'))
+  const needsPaths = lines.some((l) => l.param)
+  const needsComputedRef = lines.some((l) => l.marker === 'api')
+  let text = ensureImport(fileText, `import { type Ref${needsComputedRef ? ', type ComputedRef' : ''} } from 'vue'`)
   if (needsSchemas) {
     text = ensureImport(text, `import type { Schemas } from '${relativeImport(filePath, resolve(root, 'src/api/client.ts'))}'`)
+  }
+  if (needsPaths) {
+    text = ensureImport(text, `import type { MaybeOptionalInit } from 'openapi-fetch'`)
+    text = ensureImport(text, `import type { paths } from '${relativeImport(filePath, schemaModulePath)}'`)
   }
   const newBlock = `const props = ${renderPropsType(lines, sdkIndex)}`
   const existing = text.match(/const props = defineProps<\{[\s\S]*?\}>\(\)/)
@@ -261,19 +335,32 @@ const injectDefineProps = (fileText, filePath, lines, sdkIndex) => {
   return lines_.join('\n')
 }
 
+const renderRouterField = (line, method) => {
+  if (line.marker === 'mutate') {
+    return `          ${line.fnName}: (${line.param ?? ''}) => unwrap(SDK.${line.sdkPath}(${line.param ?? ''})),`
+  }
+  const param = line.param
+  const key = param ? `['${method}', ${param}.value]` : `['${method}']`
+  const call = param ? `SDK.${line.sdkPath}(${param}.value)` : `SDK.${line.sdkPath}()`
+  return (
+    `          ${line.fnName}: (${param ?? ''}) => {\n` +
+    `            const options = computed(() => queryOptions({\n` +
+    `              queryKey: ${key},\n` +
+    `              queryFn: () => unwrap(${call}),\n` +
+    `              staleTime: 60_000,\n` +
+    `            }))\n` +
+    `            return { ...useQuery(options), queryKey: computed(() => options.value.queryKey) }\n` +
+    `          },`
+  )
+}
+
 const renderRouterPropsObject = (lines, sdkIndex) => {
   const byMarker = {}
   for (const line of lines) {
     lookupSdkEntry(sdkIndex, line.sdkPath)
     const [, method] = line.sdkPath.split('.')
     byMarker[line.marker] ??= []
-    byMarker[line.marker].push(
-      `          ${line.fnName}: () => useQuery(queryOptions({\n` +
-        `            queryKey: ['${method}'],\n` +
-        `            queryFn: () => unwrap(SDK.${line.sdkPath}(${line.args})),\n` +
-        `            staleTime: 60_000,\n` +
-        `          })),`,
-    )
+    byMarker[line.marker].push(renderRouterField(line, method))
   }
   const body = Object.entries(byMarker)
     .map(([marker, fields]) => `        ${marker}: {\n${fields.join('\n')}\n        }`)
@@ -281,20 +368,29 @@ const renderRouterPropsObject = (lines, sdkIndex) => {
   return `props: () => ({\n${body}\n      })`
 }
 
-const injectRouterProps = (fileText, filePath, routePath, propsObjectText) => {
-  let text = ensureImport(fileText, "import { queryOptions, useQuery } from '@tanstack/vue-query'")
+const injectRouterProps = (fileText, filePath, route, propsObjectText) => {
+  let text = ensureImport(fileText, "import { computed } from 'vue'")
+  text = ensureImport(text, "import { queryOptions, useQuery } from '@tanstack/vue-query'")
   text = ensureImport(text, `import { createSdk } from '${relativeImport(filePath, resolve(root, 'src/api/sdk.generated.ts'))}'`)
   text = ensureImport(text, `import { createApi, unwrap } from '${relativeImport(filePath, resolve(root, 'src/api/client.ts'))}'`)
   if (!text.includes('const SDK = createSdk(createApi())')) {
     text = ensureImport(text, '\nconst SDK = createSdk(createApi())')
   }
 
-  const anchor = `path: '${routePath}'`
-  const anchorIndex = text.indexOf(anchor)
-  if (anchorIndex === -1) throw new Error(`router.ts has no route for path ${routePath}`)
-  const openBrace = text.lastIndexOf('{', anchorIndex)
-  const closeBrace = matchBlock(text, openBrace, '{', '}')
-  const routeBlock = text.slice(openBrace, closeBrace + 1)
+  const anchor = `name: '${route.name}'`
+  let anchorIndex = -1
+  let openBrace = -1
+  let closeBrace = -1
+  let routeBlock = ''
+  for (let from = 0; ; ) {
+    anchorIndex = text.indexOf(anchor, from)
+    if (anchorIndex === -1) throw new Error(`router.ts has no route named ${route.name}`)
+    openBrace = text.lastIndexOf('{', anchorIndex)
+    closeBrace = matchBlock(text, openBrace, '{', '}')
+    routeBlock = text.slice(openBrace, closeBrace + 1)
+    if (routeBlock.includes('component:')) break
+    from = anchorIndex + anchor.length
+  }
 
   const propsMatch = routeBlock.match(/props:\s*\(\)\s*=>\s*/)
   let newRouteBlock
@@ -307,7 +403,7 @@ const injectRouterProps = (fileText, filePath, routePath, propsObjectText) => {
     newRouteBlock = `${routeBlock.slice(0, propsStart)}${propsObjectText},${routeBlock.slice(end)}`
   } else {
     const withoutTrailingBrace = routeBlock.slice(0, -1).replace(/\s*,?\s*$/, '')
-    newRouteBlock = `${withoutTrailingBrace}\n      , ${propsObjectText} }`
+    newRouteBlock = `${withoutTrailingBrace}\n      , ${propsObjectText}, }`
   }
 
   return text.slice(0, openBrace) + newRouteBlock + text.slice(closeBrace + 1)
@@ -353,7 +449,7 @@ const runSdk = (project, flags, problems) => {
   for (const apiRef of project.apis) {
     const spec = loadOpenApi(apiRef)
     const sdkIndex = buildSdkIndex(collectOperations(spec))
-    const content = renderSdkFile(sdkIndex)
+    const content = renderSdkFile(sdkIndex, relativeImport(sdkOutPath(project.apis, apiRef.alias), schemaOutPath(project.apis, apiRef.alias)))
     writeOrCheck(sdkOutPath(project.apis, apiRef.alias), content, flags.vS, problems)
   }
 }
@@ -368,17 +464,19 @@ const runInjection = (project, flags, problems) => {
     if (!route.component) continue
     const found = findFeature(project.features, route.component)
     if (!found) throw new Error(`Router component ${route.component} has no matching ## feature entry`)
-    const sdkIndex = sdkIndexForAlias(project, found.lines[0]?.apiAlias ?? 'local')
+    const apiAlias = found.lines[0]?.apiAlias ?? 'local'
+    const sdkIndex = sdkIndexForAlias(project, apiAlias)
+    const schemaModulePath = schemaOutPath(project.apis, apiAlias)
 
     const featurePath = resolve(root, `src/features/${found.domain}/${found.featureName}.vue`)
     const featureText = readFileSync(featurePath, 'utf8')
-    const newFeatureText = injectDefineProps(featureText, featurePath, found.lines, sdkIndex)
+    const newFeatureText = injectDefineProps(featureText, featurePath, found.lines, sdkIndex, schemaModulePath)
     writeOrCheck(featurePath, newFeatureText, flags.vI, problems)
 
     const routerPath = resolve(root, 'src/app/router.ts')
     const routerText = readFileSync(routerPath, 'utf8')
     const propsObject = renderRouterPropsObject(found.lines, sdkIndex)
-    const newRouterText = injectRouterProps(routerText, routerPath, route.path, propsObject)
+    const newRouterText = injectRouterProps(routerText, routerPath, route, propsObject)
     writeOrCheck(routerPath, newRouterText, flags.vI, problems)
   }
 }

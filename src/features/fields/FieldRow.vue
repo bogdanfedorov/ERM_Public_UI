@@ -1,26 +1,37 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { Archive, ArchiveRestore } from 'lucide-vue-next'
-import { newIntentKey } from '../../api/queries'
+import { newIntentKey } from '../../api/client'
+import type { MaybeOptionalInit } from 'openapi-fetch'
+import type { paths } from '../../api/schema'
 import { fieldTitle } from '../../fields/registry'
 import type { Field } from '../../model/fields'
 import Badge from '../../ui/Badge.vue'
 import Button from '../../ui/Button.vue'
 import { errorMessage } from '../common/errors'
 import { useAction } from '../common/useAction'
-import { useTenant } from '../tenant/useTenant'
 
-const props = defineProps<{ field: Field }>()
+type ArchiveInit = MaybeOptionalInit<paths['/field_definitions/{field_definition_id}/archive'], 'post'>
+type RestoreInit = MaybeOptionalInit<paths['/field_definitions/{field_definition_id}/restore'], 'post'>
+
+const props = defineProps<{
+  field: Field
+  archiveField: (body: ArchiveInit) => Promise<unknown>
+  restoreField: (body: RestoreInit) => Promise<unknown>
+  fieldsQueryKey: unknown[]
+}>()
 defineEmits<{ edit: [] }>()
 const { t } = useI18n()
-const { q } = useTenant()
 
 const toggle = useAction({
-  run: () =>
-    props.field.status === 'active'
-      ? q.value.archiveField(props.field.id, newIntentKey())
-      : q.value.restoreField(props.field.id, newIntentKey()),
-  invalidate: () => [q.value.key('fields')],
+  run: () => {
+    const params = { path: { field_definition_id: props.field.id } }
+    const headers = { 'Idempotency-Key': newIntentKey() }
+    return props.field.status === 'active'
+      ? props.archiveField({ params, headers })
+      : props.restoreField({ params, headers })
+  },
+  invalidate: () => [props.fieldsQueryKey],
 })
 </script>
 

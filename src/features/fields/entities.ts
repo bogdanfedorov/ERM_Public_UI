@@ -1,7 +1,8 @@
-import type { Entity } from '../../api/queries'
 import type { FieldType } from '../../model/fields'
 
-export const entities: readonly Entity[] = ['person', 'offering', 'enrollment', 'attendance', 'session']
+export const entities = ['person', 'offering', 'enrollment', 'attendance', 'session'] as const
+
+export type Entity = (typeof entities)[number]
 
 export const fieldTypes: readonly FieldType[] = ['text', 'number', 'bool', 'date', 'enum']
 

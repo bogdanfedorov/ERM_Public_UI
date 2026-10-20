@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, type ComputedRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useQuery, useQueryClient } from '@tanstack/vue-query'
+import { useQueryClient } from '@tanstack/vue-query'
 import { FlaskConical, LogIn, LogOut, X } from 'lucide-vue-next'
 import { ApiError } from '../../api/client'
-import { meQuery } from '../../api/queries'
 import Button from '../../ui/Button.vue'
 import Notice from '../../ui/Notice.vue'
 import { errorMessage } from '../common/errors'
@@ -16,7 +15,10 @@ import type { Schemas } from '../../api/client'
 
 const props = defineProps<{
   api: {
-    getMe: () => { data: Ref<Schemas['Me'] | undefined> }
+    getMe: () => {
+      data: Ref<Schemas['Me'] | undefined>
+      queryKey: ComputedRef<unknown[]>
+    }
   }
 }>()
 
@@ -26,7 +28,7 @@ const router = useRouter()
 const client = useQueryClient()
 const signOutNow = useSignOut()
 
-const me = useQuery({ ...meQuery(), retry: false })
+let me = props.api.getMe()
 const accountId = ref('')
 const recent = ref(recentAccounts())
 const error = ref<string>()
@@ -47,7 +49,7 @@ const enter = async (id: string) => {
   client.clear()
   try {
     await signIn(id)
-    await client.fetchQuery(meQuery())
+    me = await props.api.getMe();
     remember(id)
     await router.replace(target.value)
   } catch (e) {

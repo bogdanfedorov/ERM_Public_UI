@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, type Ref, type ComputedRef } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Plus } from 'lucide-vue-next'
@@ -11,27 +11,49 @@ import SortableList from '../../ui/SortableList.vue'
 import TabNav from '../../ui/TabNav.vue'
 import AdminGate from '../common/AdminGate.vue'
 import QueryState from '../common/QueryState.vue'
-import { useFields } from '../common/names'
 import { useReorder } from '../common/useReorder'
-import { useTenant } from '../tenant/useTenant'
 import FieldDialog from './FieldDialog.vue'
 import FieldRow from './FieldRow.vue'
 import { entities, isEntity } from './entities'
+import type { Schemas } from '../../api/client'
+import type { MaybeOptionalInit } from 'openapi-fetch'
+import type { paths } from '../../api/schema'
+
+const props = defineProps<{
+  api: {
+    getFields: (entity: Ref<MaybeOptionalInit<paths['/fields/{entity}'], 'get'>>) => {
+      data: Ref<{ items: Schemas['FieldView'][]; next_cursor?: string } | undefined>
+      queryKey: ComputedRef<unknown[]>
+    }
+  }
+  mutate: {
+    createField: (body: MaybeOptionalInit<paths['/field_definitions'], 'post'>) => Promise<void>
+    updateField: (body: MaybeOptionalInit<paths['/field_definitions/{field_definition_id}'], 'patch'>) => Promise<void>
+    archiveField: (body: MaybeOptionalInit<paths['/field_definitions/{field_definition_id}/archive'], 'post'>) => Promise<void>
+    restoreField: (body: MaybeOptionalInit<paths['/field_definitions/{field_definition_id}/restore'], 'post'>) => Promise<void>
+    moveField: (body: MaybeOptionalInit<paths['/field_definitions/{field_definition_id}/move'], 'post'>) => Promise<void>
+  }
+}>()
 
 const { t } = useI18n()
 const route = useRoute()
-const { id: tenant, q } = useTenant()
+const tenant = computed(() => String(route.params.tenant))
 const entity = computed(() => (isEntity(route.params.entity) ? route.params.entity : 'person'))
-const fields = useFields(entity)
+const fields = props.api.getFields(computed(() => ({ params: { path: { entity: entity.value } } })))
 const editing = ref(false)
 const chosen = ref<Field>()
 
 const rows = computed(() => fields.data.value?.items ?? [])
 const reorder = useReorder({
-  queryKey: () => q.value.fields(entity.value).queryKey,
+  queryKey: () => fields.queryKey.value,
   list: (data: { items: Field[] }) => data.items,
   rebuild: (data, items) => ({ ...data, items }),
-  move: (id, afterId, intent) => q.value.moveField(id, afterId, intent),
+  move: (id, afterId, intent) =>
+    props.mutate.moveField({
+      params: { path: { field_definition_id: id } },
+      body: { after_id: afterId },
+      headers: { 'Idempotency-Key': intent },
+    }),
 })
 const open = (field?: Field) => {
   chosen.value = field
@@ -69,11 +91,26 @@ const open = (field?: Field) => {
           }"
           @move="reorder.mutate($event)"
         >
-          <template #default="{ item }"><FieldRow :field="item" @edit="open(item)" /></template>
+          <template #default="{ item }">
+            <FieldRow
+              :field="item"
+              :archive-field="props.mutate.archiveField"
+              :restore-field="props.mutate.restoreField"
+              :fields-query-key="fields.queryKey"
+              @edit="open(item)"
+            />
+          </template>
         </SortableList>
       </QueryState>
     </Panel>
 
-    <FieldDialog v-model:open="editing" :entity="entity" :field="chosen" />
+    <FieldDialog
+      v-model:open="editing"
+      :entity="entity"
+      :field="chosen"
+      :create-field="props.mutate.createField"
+      :update-field="props.mutate.updateField"
+      :fields-query-key="fields.queryKey"
+    />
   </AdminGate>
 </template>

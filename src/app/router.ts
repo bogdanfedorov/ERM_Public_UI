@@ -5,6 +5,7 @@ import AppShell from './AppShell.vue'
 import { queryOptions, useQuery } from '@tanstack/vue-query'
 import { createSdk } from '../api/sdk.generated'
 import { createApi, unwrap } from '../api/client'
+import { computed } from 'vue'
 
 const SDK = createSdk(createApi())
 
@@ -16,11 +17,14 @@ export const router = createRouter({
     { path: '/login', name: 'login', component: DevLogin
       , props: () => ({
         api: {
-          getMe: () => useQuery(queryOptions({
-            queryKey: ['me'],
-            queryFn: () => unwrap(SDK.account.me()),
-            staleTime: 60_000,
-          })),
+          getMe: () => {
+            const options = computed(() => queryOptions({
+              queryKey: ['me'],
+              queryFn: () => unwrap(SDK.account.me()),
+              staleTime: 60_000,
+            }))
+            return { ...useQuery(options), queryKey: computed(() => options.value.queryKey) }
+          },
         }
       }), },
     { path: '/', name: 'tenants', component: TenantPicker },
@@ -42,8 +46,26 @@ export const router = createRouter({
         {
           path: 'settings/fields/:entity?',
           name: 'fields',
-          component: () => import('../features/fields/FieldSettingsPage.vue'),
+          component: () => import('../features/fields/FieldSettingsPage.vue')
+      , props: () => ({
+        api: {
+          getFields: (entity) => {
+            const options = computed(() => queryOptions({
+              queryKey: ['fieldList', entity.value],
+              queryFn: () => unwrap(SDK.fieldDefinition.fieldList(entity.value)),
+              staleTime: 60_000,
+            }))
+            return { ...useQuery(options), queryKey: computed(() => options.value.queryKey) }
+          },
         },
+        mutate: {
+          createField: (body) => unwrap(SDK.fieldDefinition.create(body)),
+          updateField: (body) => unwrap(SDK.fieldDefinition.update(body)),
+          archiveField: (body) => unwrap(SDK.fieldDefinition.archive(body)),
+          restoreField: (body) => unwrap(SDK.fieldDefinition.restore(body)),
+          moveField: (body) => unwrap(SDK.fieldDefinition.move(body)),
+        }
+      }), },
         {
           path: 'offerings',
           name: 'offerings',

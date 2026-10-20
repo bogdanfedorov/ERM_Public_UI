@@ -1,6 +1,6 @@
 import { ref, watch, type Ref, type WatchSource } from 'vue'
 import { useMutation, useQueryClient, type QueryKey } from '@tanstack/vue-query'
-import { ActionDenied, newIntentKey } from '../../api/queries'
+import { ActionDenied, newIntentKey } from '../../api/client'
 
 export const useIntent = (...changes: WatchSource[]) => {
   const intent = ref(newIntentKey())
