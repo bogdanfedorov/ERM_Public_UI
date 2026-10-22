@@ -1,26 +1,16 @@
 <script setup lang="ts">
-import { computed, ref, type ComputedRef } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useQueryClient } from '@tanstack/vue-query'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { FlaskConical, LogIn, LogOut, X } from 'lucide-vue-next'
 import { ApiError } from '../../api/client'
+import { meQuery } from '../../api/queries'
 import Button from '../../ui/Button.vue'
 import Notice from '../../ui/Notice.vue'
 import { errorMessage } from '../common/errors'
 import { forget, isAccountId, recentAccounts, remember, signIn, signOut } from './devSession'
 import { useSignOut } from './useSignOut'
-import { type Ref } from 'vue'
-import type { Schemas } from '../../api/client'
-
-const props = defineProps<{
-  item: {
-    getMe: (enabled?: Ref<boolean>) => {
-      data: Ref<Schemas['Me'] | undefined>
-      queryKey: ComputedRef<unknown[]>
-    }
-  }
-}>()
 
 const { t } = useI18n()
 const route = useRoute()
@@ -28,7 +18,7 @@ const router = useRouter()
 const client = useQueryClient()
 const signOutNow = useSignOut()
 
-let me = props.item.getMe()
+const me = useQuery({ ...meQuery(), retry: false })
 const accountId = ref('')
 const recent = ref(recentAccounts())
 const error = ref<string>()
@@ -46,14 +36,14 @@ const enter = async (id: string) => {
   if (!isAccountId(id) || busy.value) return
   busy.value = true
   error.value = undefined
+  signIn(id)
   client.clear()
   try {
-    await signIn(id)
-    me = await props.item.getMe();
+    await client.fetchQuery(meQuery())
     remember(id)
     await router.replace(target.value)
   } catch (e) {
-    await signOut()
+    signOut()
     client.clear()
     error.value = e instanceof ApiError && e.status === 401 ? t('auth.unknownAccount') : errorMessage(e, t)
   } finally {

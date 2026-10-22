@@ -1,4 +1,5 @@
-import { ApiError, ActionDenied } from '../../api/client'
+import { ApiError } from '../../api/client'
+import { ActionDenied } from '../../api/queries'
 
 export const errorMessage = (error: unknown, t: (key: string) => string) => {
   if (error instanceof ActionDenied) return t('error.denied')

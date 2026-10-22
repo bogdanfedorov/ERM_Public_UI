@@ -1,20 +1,15 @@
-import { ApiError, createApi } from '../../api/client'
-
+const cookie = 'erm_dev_account'
 const recentKey = 'erm.devAccounts'
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export const isAccountId = (value: string) => uuid.test(value.trim())
 
-// See docs/architecture/12-isolation-limits-lifecycle.md#session
-export const signIn = async (accountId: string) => {
-  const { response } = await createApi().POST('/dev/session', {
-    body: { account_id: accountId.trim().toLowerCase() },
-  })
-  if (!response.ok) throw new ApiError(response.status, response.statusText)
+export const signIn = (accountId: string) => {
+  document.cookie = `${cookie}=${accountId.trim().toLowerCase()}; path=/; SameSite=Strict`
 }
 
-export const signOut = async () => {
-  await createApi().DELETE('/session')
+export const signOut = () => {
+  document.cookie = `${cookie}=; path=/; SameSite=Strict; Max-Age=0`
 }
 
 export const recentAccounts = (): string[] => {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, type Ref, type ComputedRef } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuery } from '@tanstack/vue-query'
 import { dayWindow, today } from '../../model/time'
@@ -7,18 +7,6 @@ import Notice from '../../ui/Notice.vue'
 import QueryState from '../common/QueryState.vue'
 import { useTenant } from '../tenant/useTenant'
 import LessonCard from './LessonCard.vue'
-import type { Schemas } from '../../api/client'
-import type { MaybeOptionalInit } from 'openapi-fetch'
-import type { paths } from '../../api/schema'
-
-const props = defineProps<{
-  item: {
-    getLessons: (window: Ref<MaybeOptionalInit<paths['/schedule'], 'get'>>, enabled?: Ref<boolean>) => {
-      data: Ref<{ items: Schemas['Occurrence'][]; next_cursor?: string } | undefined>
-      queryKey: ComputedRef<unknown[]>
-    }
-  }
-}>()
 
 const { t } = useI18n()
 const { q } = useTenant()

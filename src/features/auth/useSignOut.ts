@@ -6,7 +6,7 @@ export const useSignOut = () => {
   const router = useRouter()
   const client = useQueryClient()
   return async () => {
-    await signOut()
+    signOut()
     client.clear()
     await router.replace({ name: 'login' })
   }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, type Ref, type ComputedRef } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuery } from '@tanstack/vue-query'
 import { UserPlus } from 'lucide-vue-next'
@@ -12,29 +12,6 @@ import { useTenant } from '../tenant/useTenant'
 import InviteDialog from './InviteDialog.vue'
 import StaffRow from './StaffRow.vue'
 import StaffTabs from './StaffTabs.vue'
-import type { Schemas } from '../../api/client'
-import type { MaybeOptionalInit } from 'openapi-fetch'
-import type { paths } from '../../api/schema'
-
-const props = defineProps<{
-  item: {
-    getPermits: (enabled?: Ref<boolean>) => {
-      data: Ref<{ items: Schemas['Access'][]; next_cursor?: string } | undefined>
-      queryKey: ComputedRef<unknown[]>
-    }
-    getInvites: (enabled?: Ref<boolean>) => {
-      data: Ref<Schemas['InvitePage'] | undefined>
-      queryKey: ComputedRef<unknown[]>
-    }
-  }
-  mutate: {
-    createPerson: (body: MaybeOptionalInit<paths['/people'], 'post'>) => Promise<void>
-    invite: (body: MaybeOptionalInit<paths['/invites'], 'post'>) => Promise<void>
-    withdrawInvite: (body: MaybeOptionalInit<paths['/invites/{invite_id}'], 'delete'>) => Promise<void>
-    setPermit: (body: MaybeOptionalInit<paths['/people/{person_id}/permit'], 'patch'>) => Promise<void>
-    revoke: (body: MaybeOptionalInit<paths['/people/{person_id}/permit'], 'delete'>) => Promise<void>
-  }
-}>()
 
 const { t } = useI18n()
 const { q, admin } = useTenant()

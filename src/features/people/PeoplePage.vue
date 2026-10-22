@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, type ComputedRef } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useInfiniteQuery } from '@tanstack/vue-query'
 import { ChevronRight, Search } from 'lucide-vue-next'
@@ -11,16 +11,6 @@ import Panel from '../../ui/Panel.vue'
 import QueryState from '../common/QueryState.vue'
 import { useFields } from '../common/names'
 import { useTenant } from '../tenant/useTenant'
-import type { Schemas } from '../../api/client'
-import type { UseInfiniteQueryReturnType, InfiniteData } from '@tanstack/vue-query'
-
-const props = defineProps<{
-  pages: {
-    getPeople: () => UseInfiniteQueryReturnType<InfiniteData<Schemas['PersonPage']>, Error> & {
-      queryKey: ComputedRef<unknown[]>
-    }
-  }
-}>()
 
 const { t } = useI18n()
 const { id: tenant, q } = useTenant()

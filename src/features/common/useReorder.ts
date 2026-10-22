@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient, type QueryKey } from '@tanstack/vue-query'
-import { ActionDenied, newIntentKey } from '../../api/client'
+import { ActionDenied, newIntentKey } from '../../api/queries'
 import { placeAfter, type Ordered } from '../../model/order'
 
 export type Move = { id: string; afterId?: string }

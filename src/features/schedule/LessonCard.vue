@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useQuery } from '@tanstack/vue-query'
 import { Temporal } from 'temporal-polyfill'
 import { ChevronDown, History } from 'lucide-vue-next'
-import type { Schemas } from '../../api/client'
+import type { Occurrence } from '../../api/generated'
 import { current, history } from '../../model/attendance'
 import { isOpenAt, sameInstant, zoned } from '../../model/time'
 import QueryState from '../common/QueryState.vue'
@@ -14,7 +14,7 @@ import StatusBadge from '../common/StatusBadge.vue'
 import { attendanceLook, sessionLook } from '../common/status'
 import { useTenant } from '../tenant/useTenant'
 
-const props = defineProps<{ lesson: Schemas['Occurrence'] }>()
+const props = defineProps<{ lesson: Occurrence }>()
 const { t } = useI18n()
 const { q } = useTenant()
 const open = ref(false)

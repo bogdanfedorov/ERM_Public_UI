@@ -1,7 +1,7 @@
 import { computed, type MaybeRefOrGetter, toValue } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 import { titleOf } from '../../model/fields'
-import type { Schemas } from '../../api/client'
+import type { Offering } from '../../api/generated'
 import type { Entity } from '../../api/queries'
 import { useTenant } from '../tenant/useTenant'
 
@@ -12,7 +12,7 @@ export const useFields = (entity: MaybeRefOrGetter<Entity>) => {
 
 export const useOfferingTitle = () => {
   const fields = useFields('offering')
-  return (offering: Pick<Schemas['Offering'], 'kind' | 'attrs'>) =>
+  return (offering: Pick<Offering, 'kind' | 'attrs'>) =>
     titleOf(fields.data.value?.items ?? [], offering.attrs) ?? offering.kind
 }
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, type Ref, type ComputedRef } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery } from '@tanstack/vue-query'
@@ -17,39 +17,6 @@ import { enrollmentLook, sessionLook } from '../common/status'
 import { useFields, useOffering, useOfferingTitle } from '../common/names'
 import { useTenant } from '../tenant/useTenant'
 import EnrollDialog from './EnrollDialog.vue'
-import type { Schemas } from '../../api/client'
-import type { MaybeOptionalInit } from 'openapi-fetch'
-import type { paths } from '../../api/schema'
-import type { UseInfiniteQueryReturnType, InfiniteData } from '@tanstack/vue-query'
-
-const props = defineProps<{
-  item: {
-    getOffering: (id: Ref<MaybeOptionalInit<paths['/offerings/{offering_id}'], 'get'>>, enabled?: Ref<boolean>) => {
-      data: Ref<Schemas['Offering'] | undefined>
-      queryKey: ComputedRef<unknown[]>
-    }
-    getFields: (entity: Ref<MaybeOptionalInit<paths['/fields/{entity}'], 'get'>>, enabled?: Ref<boolean>) => {
-      data: Ref<{ items: Schemas['FieldView'][]; next_cursor?: string } | undefined>
-      queryKey: ComputedRef<unknown[]>
-    }
-    getEnrollments: (filter: Ref<MaybeOptionalInit<paths['/enrollments'], 'get'>>, enabled?: Ref<boolean>) => {
-      data: Ref<Schemas['EnrollmentPage'] | undefined>
-      queryKey: ComputedRef<unknown[]>
-    }
-    getLessons: (window: Ref<MaybeOptionalInit<paths['/schedule'], 'get'>>, enabled?: Ref<boolean>) => {
-      data: Ref<{ items: Schemas['Occurrence'][]; next_cursor?: string } | undefined>
-      queryKey: ComputedRef<unknown[]>
-    }
-  }
-  pages: {
-    getPeople: () => UseInfiniteQueryReturnType<InfiniteData<Schemas['PersonPage']>, Error> & {
-      queryKey: ComputedRef<unknown[]>
-    }
-  }
-  mutate: {
-    enroll: (body: MaybeOptionalInit<paths['/offerings/{offering_id}/enrollments'], 'post'>) => Promise<void>
-  }
-}>()
 
 const { t } = useI18n()
 const route = useRoute()

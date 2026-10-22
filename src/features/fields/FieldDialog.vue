@@ -1,28 +1,21 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { MaybeOptionalInit } from 'openapi-fetch'
-import type { paths } from '../../api/schema'
+import type { Entity } from '../../api/queries'
 import type { Field, FieldIndex, FieldType } from '../../model/fields'
 import CheckField from '../../ui/CheckField.vue'
 import SelectField from '../../ui/SelectField.vue'
 import TextField from '../../ui/TextField.vue'
 import FormDialog from '../common/FormDialog.vue'
 import { useAction, useIntent } from '../common/useAction'
-import { fieldTypes, type Entity } from './entities'
+import { useTenant } from '../tenant/useTenant'
+import { fieldTypes } from './entities'
 
-const props = defineProps<{
-  entity: Entity
-  field?: Field
-  createField: (body: MaybeOptionalInit<paths['/field_definitions'], 'post'>) => Promise<unknown>
-  updateField: (
-    body: MaybeOptionalInit<paths['/field_definitions/{field_definition_id}'], 'patch'>,
-  ) => Promise<unknown>
-  fieldsQueryKey: unknown[]
-}>()
+const props = defineProps<{ entity: Entity; field?: Field }>()
 const open = defineModel<boolean>('open', { required: true })
 
 const { t } = useI18n()
+const { q } = useTenant()
 const key = ref('')
 const title = ref('')
 const type = ref<FieldType>('text')
@@ -72,17 +65,10 @@ const save = useAction({
       ...(type.value === 'enum' && { options: listed.value }),
     }
     return props.field
-      ? props.updateField({
-          params: { path: { field_definition_id: props.field.id } },
-          body,
-          headers: { 'Idempotency-Key': intent.value },
-        })
-      : props.createField({
-          body: { ...body, entity: props.entity, key: key.value, type: type.value },
-          headers: { 'Idempotency-Key': intent.value },
-        })
+      ? q.value.updateField(props.field.id, body, intent.value)
+      : q.value.createField({ ...body, entity: props.entity, key: key.value, type: type.value }, intent.value)
   },
-  invalidate: () => [props.fieldsQueryKey],
+  invalidate: () => [q.value.key('fields')],
   closes: open,
 })
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, type Ref, type ComputedRef } from 'vue'
+import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery } from '@tanstack/vue-query'
@@ -11,18 +11,6 @@ import OfferingLink from '../common/OfferingLink.vue'
 import StatusBadge from '../common/StatusBadge.vue'
 import { sessionLook } from '../common/status'
 import { useTenant } from '../tenant/useTenant'
-import type { Schemas } from '../../api/client'
-import type { MaybeOptionalInit } from 'openapi-fetch'
-import type { paths } from '../../api/schema'
-
-const props = defineProps<{
-  item: {
-    getLessons: (window: Ref<MaybeOptionalInit<paths['/schedule'], 'get'>>, enabled?: Ref<boolean>) => {
-      data: Ref<{ items: Schemas['Occurrence'][]; next_cursor?: string } | undefined>
-      queryKey: ComputedRef<unknown[]>
-    }
-  }
-}>()
 
 const { t } = useI18n()
 const route = useRoute()
