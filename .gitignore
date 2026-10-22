@@ -5,3 +5,14 @@ playwright-report
 test-results
 .shots
 .dev/vite.log
+.gitignore
+eslint.config.js
+package.json
+pnpm-lock.yaml
+scripts/gen-api.mjs
+src/api/client.ts
+src/api/queries.ts
+src/api/schema.d.ts
+src/features/common/names.ts
+src/features/schedule/LessonCard.vue
+.dev/vite.pid
