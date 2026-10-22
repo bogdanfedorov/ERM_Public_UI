@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 const backend = fileURLToPath(new URL('../../backend', import.meta.url))
-const seed = readFileSync(new URL('../../backend/seed/dev.sql', import.meta.url))
+const seed = readFileSync(new URL('./seed.sql', import.meta.url))
 
 const psql = (input: string | Buffer) =>
   execFileSync(
